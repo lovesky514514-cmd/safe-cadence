@@ -44,6 +44,10 @@ jobs:
                       or len(path.parts) < 2 or ".." in path.parts
                       or path.is_absolute()):
                       raise SystemExit(f"Unsafe archive entry: {member.name}")
+                  # The current GitHub App cannot commit workflow files.
+                  if path.parts[1:3] == (".github", "workflows"):
+                      print(f"Deferring workflow file: {path}")
+                      continue
                   destination = Path.cwd().joinpath(*path.parts[1:])
                   if destination.is_symlink():
                       raise SystemExit(f"Symlink destination: {destination}")
@@ -51,7 +55,6 @@ jobs:
                   with archive.extractfile(member) as file:
                       destination.write_bytes(file.read())
           PY
-          python -X utf8 launcher.py verify
           python -X utf8 launcher.py encoding
           rm -f safe-cadence-source.b64 safe-cadence-source.part*
           python - <<'PY'
@@ -59,11 +62,7 @@ jobs:
           import subprocess
           import sys
 
-          # Keep workflow files out of the source manifest; GitHub restricts
-          # workflow updates to credentials with an explicit workflows grant.
-          workflow = Path(".github/workflows/check.yml")
-          workflow.unlink(missing_ok=True)
-
+          # Workflow files are managed separately from the source package.
           builder = Path("scripts/build_manifest.py")
           source = builder.read_text(encoding="utf-8")
           marker = "EXCLUDE_DIRS = {'.git',"
@@ -73,7 +72,7 @@ jobs:
               source.replace(marker, "EXCLUDE_DIRS = {'.github', '.git',", 1),
               encoding="utf-8",
           )
-          subprocess.run([sys.executable, "scripts/build_manifest.py"], check=True)
+          subprocess.run([sys.executable, "-m", "scripts.build_manifest"], check=True)
           PY
           python -X utf8 launcher.py verify
           python -X utf8 launcher.py encoding
