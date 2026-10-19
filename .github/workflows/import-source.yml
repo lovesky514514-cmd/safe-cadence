@@ -3,7 +3,7 @@ name: Import source package
 on:
   push:
     paths:
-      - safe-cadence-source.zip
+      - safe-cadence-source.b64
   workflow_dispatch:
 
 permissions:
@@ -19,34 +19,39 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path, PurePosixPath
-          from zipfile import ZipFile
+          import base64
+          import io
           import stat
+          import tarfile
 
-          archive = Path("safe-cadence-source.zip")
-          if not archive.is_file():
-              raise SystemExit("Upload safe-cadence-source.zip before running import.")
-          with ZipFile(archive) as source:
-              members = [item for item in source.infolist() if not item.is_dir()]
+          source = Path("safe-cadence-source.b64")
+          if not source.is_file() or source.stat().st_size > 250_000:
+              raise SystemExit("Missing or oversized source package.")
+          raw = base64.b64decode(source.read_text(encoding="ascii"), validate=False)
+          with tarfile.open(fileobj=io.BytesIO(raw), mode="r:bz2") as archive:
+              members = archive.getmembers()
               if not members or len(members) > 200:
                   raise SystemExit("Unexpected archive file count.")
-              if sum(item.file_size for item in members) > 10_000_000:
-                  raise SystemExit("Uncompressed archive exceeds 10 MB.")
-              for item in members:
-                  path = PurePosixPath(item.filename)
-                  if (not path.parts or path.parts[0] != "safe-cadence"
+              if sum(member.size for member in members) > 10_000_000:
+                  raise SystemExit("Source package exceeds 10 MB.")
+              for member in members:
+                  path = PurePosixPath(member.name)
+                  if (not member.isfile() or not path.parts
+                      or path.parts[0] != "safe-cadence"
                       or len(path.parts) < 2 or ".." in path.parts
-                      or path.is_absolute()
-                      or stat.S_IFMT(item.external_attr >> 16) == stat.S_IFLNK):
-                      raise SystemExit(f"Unsafe archive path: {item.filename}")
-                  relative = Path(*path.parts[1:])
-                  destination = Path.cwd() / relative
+                      or path.is_absolute()):
+                      raise SystemExit(f"Unsafe archive entry: {member.name}")
+                  destination = Path.cwd().joinpath(*path.parts[1:])
+                  if destination.is_symlink():
+                      raise SystemExit(f"Symlink destination: {destination}")
                   destination.parent.mkdir(parents=True, exist_ok=True)
-                  destination.write_bytes(source.read(item))
+                  with archive.extractfile(member) as file:
+                      destination.write_bytes(file.read())
           PY
           python -X utf8 launcher.py verify
           python -X utf8 launcher.py encoding
-          rm safe-cadence-source.zip .github/workflows/import-source.yml
-      - name: Commit imported files
+          rm safe-cadence-source.b64 .github/workflows/import-source.yml
+      - name: Commit source
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
