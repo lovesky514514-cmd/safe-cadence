@@ -21,16 +21,16 @@ jobs:
           from pathlib import Path, PurePosixPath
           import base64
           import io
-          import stat
           import tarfile
 
           parts = sorted(Path.cwd().glob("safe-cadence-source.part*"))
-          if parts:
-              Path("safe-cadence-source.b64").write_text("".join(p.read_text(encoding="ascii") for p in parts), encoding="ascii")
-          source = Path("safe-cadence-source.b64")
-          if not source.is_file() or source.stat().st_size > 250_000:
-              raise SystemExit("Missing or oversized source package.")
-          raw = base64.b64decode(source.read_text(encoding="ascii"), validate=False)
+          if not parts:
+              raise SystemExit("Missing source-package chunks.")
+          encoded = "".join(p.read_text(encoding="ascii") for p in parts)
+          if len(encoded) > 250_000:
+              raise SystemExit("Source package exceeds the import limit.")
+          Path("safe-cadence-source.b64").write_text(encoded, encoding="ascii")
+          raw = base64.b64decode(encoded, validate=True)
           with tarfile.open(fileobj=io.BytesIO(raw), mode="r:bz2") as archive:
               members = archive.getmembers()
               if not members or len(members) > 200:
@@ -53,7 +53,30 @@ jobs:
           PY
           python -X utf8 launcher.py verify
           python -X utf8 launcher.py encoding
-          rm -f safe-cadence-source.b64 safe-cadence-source.part* .github/workflows/import-source.yml
+          rm -f safe-cadence-source.b64 safe-cadence-source.part*
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          # Keep workflow files out of the source manifest; GitHub restricts
+          # workflow updates to credentials with an explicit workflows grant.
+          workflow = Path(".github/workflows/check.yml")
+          workflow.unlink(missing_ok=True)
+
+          builder = Path("scripts/build_manifest.py")
+          source = builder.read_text(encoding="utf-8")
+          marker = "EXCLUDE_DIRS = {'.git',"
+          if marker not in source:
+              raise SystemExit("Could not safely update the manifest exclusions.")
+          builder.write_text(
+              source.replace(marker, "EXCLUDE_DIRS = {'.github', '.git',", 1),
+              encoding="utf-8",
+          )
+          subprocess.run([sys.executable, "scripts/build_manifest.py"], check=True)
+          PY
+          python -X utf8 launcher.py verify
+          python -X utf8 launcher.py encoding
       - name: Commit source
         shell: bash
         run: |
