@@ -1,0 +1,58 @@
+name: Import source package
+
+on:
+  push:
+    paths:
+      - safe-cadence-source.zip
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and unpack
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+          import stat
+
+          archive = Path("safe-cadence-source.zip")
+          if not archive.is_file():
+              raise SystemExit("Upload safe-cadence-source.zip before running import.")
+          with ZipFile(archive) as source:
+              members = [item for item in source.infolist() if not item.is_dir()]
+              if not members or len(members) > 200:
+                  raise SystemExit("Unexpected archive file count.")
+              if sum(item.file_size for item in members) > 10_000_000:
+                  raise SystemExit("Uncompressed archive exceeds 10 MB.")
+              for item in members:
+                  path = PurePosixPath(item.filename)
+                  if (not path.parts or path.parts[0] != "safe-cadence"
+                      or len(path.parts) < 2 or ".." in path.parts
+                      or path.is_absolute()
+                      or stat.S_IFMT(item.external_attr >> 16) == stat.S_IFLNK):
+                      raise SystemExit(f"Unsafe archive path: {item.filename}")
+                  relative = Path(*path.parts[1:])
+                  destination = Path.cwd() / relative
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  destination.write_bytes(source.read(item))
+          PY
+          python -X utf8 launcher.py verify
+          python -X utf8 launcher.py encoding
+          rm safe-cadence-source.zip .github/workflows/import-source.yml
+      - name: Commit imported files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Import Safe-Cadence source"
+            git push origin HEAD:main
+          fi
