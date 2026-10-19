@@ -26,7 +26,7 @@ jobs:
           parts = sorted(Path.cwd().glob("safe-cadence-source.part*"))
           if not parts:
               raise SystemExit("Missing source-package chunks.")
-          encoded = "".join(p.read_text(encoding="ascii") for p in parts)
+          encoded = "".join(p.read_text(encoding="ascii").strip() for p in parts)
           if len(encoded) > 250_000:
               raise SystemExit("Source package exceeds the import limit.")
           Path("safe-cadence-source.b64").write_text(encoded, encoding="ascii")
