@@ -3,7 +3,7 @@ name: Import source package
 on:
   push:
     paths:
-      - safe-cadence-source.b64
+      - safe-cadence-source.part*
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,9 @@ jobs:
           import stat
           import tarfile
 
+          parts = sorted(Path.cwd().glob("safe-cadence-source.part*"))
+          if parts:
+              Path("safe-cadence-source.b64").write_text("".join(p.read_text(encoding="ascii") for p in parts), encoding="ascii")
           source = Path("safe-cadence-source.b64")
           if not source.is_file() or source.stat().st_size > 250_000:
               raise SystemExit("Missing or oversized source package.")
@@ -50,7 +53,7 @@ jobs:
           PY
           python -X utf8 launcher.py verify
           python -X utf8 launcher.py encoding
-          rm safe-cadence-source.b64 .github/workflows/import-source.yml
+          rm -f safe-cadence-source.b64 safe-cadence-source.part* .github/workflows/import-source.yml
       - name: Commit source
         shell: bash
         run: |
