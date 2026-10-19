@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.partial
+*.log
+.env
+.env.*
+logs/
+outputs/
+data/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+.DS_Store
